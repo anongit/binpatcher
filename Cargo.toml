@@ -1,0 +1,18 @@
+[package]
+name = "binpatcher"
+version = "0.1.0"
+edition = "2018"
+description = "Search and replace bytes in a binary file."
+repository = "https://github.com/anongit/binpatcher"
+license = "MIT OR Apache-2.0"
+
+
+[dependencies]
+dialoguer = "0.8.0"
+md5 = "0.7.0"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = "z"
+panic = 'abort'

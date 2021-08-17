@@ -1,0 +1,88 @@
+name: Continuous Deployment
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+
+  publish:
+    name: Publishing for ${{ matrix.job.os }}
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      matrix:
+        rust: [stable]
+        job:
+          - os: macos-10.15
+            os-name: macos
+            target: x86_64-apple-darwin
+            architecture: x86_64
+            binary-postfix: ""
+            use-cross: false
+          - os: ubuntu-latest
+            os-name: linux
+            target: x86_64-unknown-linux-musl
+            architecture: x86_64
+            binary-postfix: ""
+            use-cross: false
+          - os: windows-latest
+            os-name: windows
+            target: x86_64-pc-windows-msvc
+            architecture: x86_64
+            binary-postfix: ".exe"
+            use-cross: false
+
+    steps:
+      - name: Installing Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          profile: minimal
+          override: true
+
+      - name: Install additional commands
+        shell: bash
+        run: |
+          if [[ ${{ runner.os}} == 'Windows' ]]; then
+            choco install upx
+          elif [[ ${{ runner.os }} == 'macOS' ]]; then
+            brew install upx
+          elif [[ ${{ runner.os }} == 'Linux' ]]; then
+            curl -sSL https://github.com/upx/upx/releases/download/v3.96/upx-3.96-amd64_linux.tar.xz | tar xJf -
+            sudo mv upx-3.96-amd64_linux/upx /usr/bin/
+            rustup target add ${{ matrix.job.target }}
+          fi
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Cargo build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          use-cross: ${{ matrix.job.use-cross }}
+          toolchain: ${{ matrix.rust }}
+          args: --release --target ${{ matrix.job.target }}
+
+      - name: Packaging final binary
+        shell: bash
+        run: |
+          cd target/${{ matrix.job.target }}/release
+
+          ####### reduce binary size by removing debug symbols #######
+          BINARY_NAME=binpatcher${{ matrix.job.binary-postfix }}
+          strip $BINARY_NAME
+
+          ########## compress with upx ##########
+          RELEASE_NAME=binpatcher-${GITHUB_REF/refs\/tags\//}-${{ matrix.job.os-name }}-${{ matrix.job.architecture }}${{ matrix.job.binary-postfix }}
+          mv $BINARY_NAME $RELEASE_NAME
+          upx --best --lzma $RELEASE_NAME
+
+      - name: Releasing assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/${{ matrix.job.target }}/release/binpatcher-*-${{ matrix.job.os-name }}-${{ matrix.job.architecture }}${{ matrix.job.binary-postfix }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
